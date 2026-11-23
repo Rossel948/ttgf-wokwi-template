@@ -1,150 +1,79 @@
 /*
-This file provides the mapping from the Wokwi modules to Verilog HDL.
+ * Copyright (c) 2024 Jason Kaufmann
+ * SPDX-License-Identifier: Apache-2.0
+ */
 
-It's only needed for Wokwi designs.
-*/
+`default_nettype none
 
-`define default_netname none
+module tt_um_8bitadder (
+    input  wire [7:0] ui_in,    // Dedicated inputs
+    output wire [7:0] uo_out,   // Dedicated outputs
+    input  wire [7:0] uio_in,   // IOs: Input path
+    output wire [7:0] uio_out,  // IOs: Output path
+    output wire [7:0] uio_oe,   // IOs: Enable path (active high: 0=input, 1=output)
+    input  wire       ena,      // always 1 when the design is powered, so you can ignore it
+    input  wire       clk,      // clock
+    input  wire       rst_n     // reset_n - low to reset
+);
 
-(* keep_hierarchy *)
-module buffer_cell (
-    input wire in,
-    output wire out
-    );
-    assign out = in;
-endmodule
+  // Instantiate the rca8 module
+  wire [7:0] sum;
+  wire cout;
 
-(* keep_hierarchy *)
-module and_cell (
-    input wire a,
-    input wire b,
-    output wire out
-    );
+  rca8 adder (
+      .A(ui_in),
+      .B(uio_in),
+      .cin(1'b0),    // Assuming no carry-in for simplicity
+      .SUM(sum),
+      .cout(cout)
+  );
 
-    assign out = a & b;
-endmodule
+  // Assign the sum to the output
+  assign uo_out = sum;
 
-(* keep_hierarchy *)
-module or_cell (
-    input wire a,
-    input wire b,
-    output wire out
-    );
+  // All other output pins must be assigned. If not used, assign to 0.
+  assign uio_out = 0;
+  assign uio_oe  = 0;
 
-    assign out = a | b;
-endmodule
-
-(* keep_hierarchy *)
-module xor_cell (
-    input wire a,
-    input wire b,
-    output wire out
-    );
-
-    assign out = a ^ b;
-endmodule
-
-(* keep_hierarchy *)
-module nand_cell (
-    input wire a,
-    input wire b,
-    output wire out
-    );
-
-    assign out = !(a&b);
-endmodule
-
-(* keep_hierarchy *)
-module nor_cell (
-    input wire a,
-    input wire b,
-    output wire out
-    );
-
-    assign out = !(a | b);
-endmodule
-
-(* keep_hierarchy *)
-module xnor_cell (
-    input wire a,
-    input wire b,
-    output wire out
-    );
-
-    assign out = !(a ^ b);
-endmodule
-
-(* keep_hierarchy *)
-module not_cell (
-    input wire in,
-    output wire out
-    );
-
-    assign out = !in;
-endmodule
-
-(* keep_hierarchy *)
-module mux_cell (
-    input wire a,
-    input wire b,
-    input wire sel,
-    output wire out
-    );
-
-    assign out = sel ? b : a;
-endmodule
-
-(* keep_hierarchy *)
-module dff_cell (
-    input wire clk,
-    input wire d,
-    output reg q,
-    output wire notq
-    );
-
-    assign notq = !q;
-    always @(posedge clk)
-        q <= d;
+  // List all unused inputs to prevent warnings
+  wire _unused = &{ena, clk, rst_n, 1'b0};
 
 endmodule
 
-(* keep_hierarchy *)
-module dffr_cell (
-    input wire clk,
-    input wire d,
-    input wire r,
-    output reg q,
-    output wire notq
-    );
-
-    assign notq = !q;
-
-    always @(posedge clk or posedge r) begin
-        if (r)
-            q <= 0;
-        else
-            q <= d;
-    end
+module halfadder(input wire a,
+                 input wire b,
+                 output wire s,
+                 output wire cout);
+    assign s = a ^ b;
+    assign cout = a & b;
 endmodule
 
-(* keep_hierarchy *)
-module dffsr_cell (
-    input wire clk,
-    input wire d,
-    input wire s,
-    input wire r,
-    output reg q,
-    output wire notq
-    );
+module fulladder(input wire cin,
+                 input wire a,
+                 input wire b,
+                 output wire s,
+                 output wire cout);
+    wire s_tmp, cout_tmp1, cout_tmp2; 
+    halfadder h0(.a(a), .b(b), .s(s_tmp), .cout(cout_tmp1));
+    halfadder h1(.a(s_tmp), .b(cin), .s(s), .cout(cout_tmp2));
+    assign cout = cout_tmp1 | cout_tmp2; 
+endmodule
 
-    assign notq = !q;
+module rca8(input wire [7:0] A,
+            input wire [7:0] B,
+            input wire       cin,
+            output wire [7:0] SUM,
+            output wire      cout);
+    wire [7:0] carry;
+    
+    fulladder fa0 (.cin(cin),     .a(A[0]), .b(B[0]), .s(SUM[0]), .cout(carry[0]));
+    fulladder fa1 (.cin(carry[0]), .a(A[1]), .b(B[1]), .s(SUM[1]), .cout(carry[1]));
+    fulladder fa2 (.cin(carry[1]), .a(A[2]), .b(B[2]), .s(SUM[2]), .cout(carry[2]));
+    fulladder fa3 (.cin(carry[2]), .a(A[3]), .b(B[3]), .s(SUM[3]), .cout(carry[3]));
+    fulladder fa4 (.cin(carry[3]), .a(A[4]), .b(B[4]), .s(SUM[4]), .cout(carry[4]));
+    fulladder fa5 (.cin(carry[4]), .a(A[5]), .b(B[5]), .s(SUM[5]), .cout(carry[5]));
+    fulladder fa6 (.cin(carry[5]), .a(A[6]), .b(B[6]), .s(SUM[6]), .cout(carry[6]));
+    fulladder fa7 (.cin(carry[6]), .a(A[7]), .b(B[7]), .s(SUM[7]), .cout(carry[7]));
 
-    always @(posedge clk or posedge s or posedge r) begin
-        if (r)
-            q <= 0;
-        else if (s)
-            q <= 1;
-        else
-            q <= d;
-    end
+    assign cout = carry[7];
 endmodule
